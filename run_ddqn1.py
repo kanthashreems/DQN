@@ -37,6 +37,10 @@ SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
 SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
+#masking gpus
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+
 class Policy():
     def __init__(self, num_actions, epsilon_start, epsilon_end, exploration_steps):
         self.num_actions = num_actions
@@ -109,7 +113,11 @@ class Agent():
         # Define loss and gradient update operation
         self.a, self.y, self.loss, self.grads_update = self.build_training_op(q_network_weights)
 
-        self.sess = tf.InteractiveSession()
+        #mask gpus
+        gpu_options = tf.GPUOptions(allow_growth=True)
+        self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False,
+                                        allow_soft_placement=True,
+                                        gpu_options=gpu_options))
         self.saver = tf.train.Saver(q_network_weights, max_to_keep=10000)
         self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
         self.summary_writer = tf.summary.FileWriter(SAVE_SUMMARY_PATH, self.sess.graph)
