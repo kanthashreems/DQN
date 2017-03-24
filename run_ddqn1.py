@@ -31,8 +31,9 @@ SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
 TRAIN = True
-SAVE_NETWORK_PATH = 'saved_networks/' + ENV_NAME
-SAVE_SUMMARY_PATH = 'summary/' + ENV_NAME
+FOLDER_TAG = 'DDQN-' + ENV_NAME
+SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
+SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
 class Policy():
