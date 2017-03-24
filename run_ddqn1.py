@@ -27,7 +27,8 @@ BATCH_SIZE = 32  # Mini batch size
 TARGET_UPDATE_INTERVAL = 10000  # The frequency with which the target network is updated
 TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
 LEARNING_RATE = 0.0001  # Learning rate used by ADAM
-SAVE_INTERVAL = 50000  # The frequency with which the network is saved
+SAVE_INTERVAL = 300000  # The frequency with which the network is saved
+SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
 TRAIN = True
@@ -82,10 +83,12 @@ class Agent():
     def __init__(self, num_actions):
         self.num_actions = num_actions
         self.t = 0
+        self.network_updates = 0
         self.policy = Policy(num_actions, INITIAL_EPSILON, FINAL_EPSILON, EXPLORATION_STEPS)
         self.replay_memory = ReplayMemory(NUM_REPLAY_MEMORY)
 
         # Parameters used for summary
+        self.total_reward_unclipped = 0
         self.total_reward = 0
         self.total_q_max = 0
         self.total_loss = 0
@@ -164,6 +167,7 @@ class Agent():
 
     def run(self, state, action, reward, terminal, observation):
         next_state = np.append(state[1:, :, :], observation, axis=0)
+        self.total_reward_unclipped += reward
 
         # Clip all positive rewards at 1 and all negative rewards at -1, leaving 0 rewards unchanged
         reward = np.clip(reward, -1, 1)
@@ -176,6 +180,7 @@ class Agent():
             # Train network
             if self.t % TRAIN_INTERVAL == 0:
                 self.train_network()
+                self.network_updates += 1
 
             # Update target network
             if self.t % TARGET_UPDATE_INTERVAL == 0:
@@ -186,6 +191,10 @@ class Agent():
                 save_path = self.saver.save(self.sess, SAVE_NETWORK_PATH + '/' + ENV_NAME, global_step=self.t)
                 print('Successfully saved: ' + save_path)
 
+            if self.network_updates % SAVE_INTERVAL_UPDATE_STEPS == 0:
+                save_path = self.saver.save(self.sess, SAVE_NETWORK_PATH + '_evaluation/' + ENV_NAME, global_step=self.network_updates)
+                print('Successfully saved: ' + save_path)
+
         self.total_reward += reward
         self.total_q_max += np.max(self.q_values.eval(feed_dict={self.s: [np.float32(state / 255.0)]}))
         self.duration += 1
@@ -194,7 +203,7 @@ class Agent():
             # Write summary
             if self.t >= INITIAL_REPLAY_SIZE:
                 stats = [self.total_reward, self.total_q_max / float(self.duration),
-                        self.duration, self.total_loss / (float(self.duration) / float(TRAIN_INTERVAL))]
+                        self.duration, self.total_loss / (float(self.duration) / float(TRAIN_INTERVAL)), self.total_reward_unclipped]
                 for i in range(len(stats)):
                     self.sess.run(self.update_ops[i], feed_dict={
                         self.summary_placeholders[i]: float(stats[i])
@@ -214,6 +223,7 @@ class Agent():
                 self.total_reward, self.total_q_max / float(self.duration),
                 self.total_loss / (float(self.duration) / float(TRAIN_INTERVAL)), mode))
 
+            self.total_reward_unclipped = 0
             self.total_reward = 0
             self.total_q_max = 0
             self.total_loss = 0
@@ -280,7 +290,9 @@ class Agent():
         tf.summary.scalar(ENV_NAME + '/Duration/Episode', episode_duration)
         episode_avg_loss = tf.Variable(0.)
         tf.summary.scalar(ENV_NAME + '/Average Loss/Episode', episode_avg_loss)
-        summary_vars = [episode_total_reward, episode_avg_max_q, episode_duration, episode_avg_loss]
+        episode_total_reward_unclipped = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Total Reward Unclipped/Episode', episode_total_reward_unclipped)
+        summary_vars = [episode_total_reward, episode_avg_max_q, episode_duration, episode_avg_loss, episode_total_reward_unclipped]
         summary_placeholders = [tf.placeholder(tf.float32) for _ in range(len(summary_vars))]
         update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in range(len(summary_vars))]
         summary_op = tf.summary.merge_all()
