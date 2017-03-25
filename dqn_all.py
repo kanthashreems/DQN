@@ -373,8 +373,8 @@ class Agent():
 
         # y_batch = reward_batch + (1 - terminal_batch) * GAMMA * q_values_next_batch
         ##############
-        next_action_batch = np.argmax(self.q_values.eval(feed_dict={self.s: next_state_batch}), axis=1)
-        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: next_state_batch})
+        next_action_batch = np.argmax(self.q_values.eval(feed_dict={self.s: np.float32(np.array(next_state_batch) / 255.0)}), axis=1)
+        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch) / 255.0)})
         for i in xrange(len(minibatch)):
             y_batch.append(reward_batch[i] + (1 - terminal_batch[i]) * GAMMA * target_q_values_batch[i][next_action_batch[i]])
 
