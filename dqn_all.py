@@ -382,7 +382,7 @@ class Agent():
         loss, _ = self.sess.run([self.loss, self.grads_update], feed_dict={
             self.s: np.float32(np.array(state_batch) / 255.0),
             self.a: action_batch,
-            self.y: y_batch.eval()
+            self.y: y_batch
         })
 
         self.total_loss += loss
