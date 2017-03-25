@@ -9,6 +9,8 @@ from skimage.transform import resize
 from keras.models import Sequential
 from keras.layers import Convolution2D, Flatten, Dense, Lambda
 from keras import backend as K
+import argparse
+
 K.set_image_dim_ordering('th')
 
 ENV_NAME = 'SpaceInvaders-v0'  # Environment name
@@ -26,13 +28,13 @@ NUM_REPLAY_MEMORY = 1000000  # Number of replay memory the agent uses for traini
 BATCH_SIZE = 32  # Mini batch size
 TARGET_UPDATE_INTERVAL = 10000  # The frequency with which the target network is updated
 TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
-LEARNING_RATE = 0.00025  # Learning rate used by ADAM
+LEARNING_RATE = 0.0001  # Learning rate used by ADAM
 SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
 TRAIN = True
-FOLDER_TAG = 'Dueling-DDQN-' + ENV_NAME
+FOLDER_TAG = 'DDQN-' + ENV_NAME
 SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
 SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
@@ -173,6 +175,20 @@ class Agent():
         self.duration = 0
         self.episode = 0
 
+        if network_type == "DQN":
+            self.build_network = self.build_dqn
+            self.train_network = self.train_dqn
+        elif network_type == "DDQN":
+            self.build_network = self.build_dqn
+            self.train_network = self.train_ddqn
+        elif network_type == "DUEL_DQN":
+            self.build_network = self.build_duel
+            self.train_network = self.train_dqn
+        elif network_type == "DUEL_DDQN":
+            self.build_network = self.build_duel
+            self.train_network = self.train_ddqn
+
+
         # Create q network
         self.s, self.q_values, q_network = self.build_network()
         q_network_weights = q_network.trainable_weights
@@ -204,22 +220,21 @@ class Agent():
         # Initialize target network
         self.sess.run(self.update_target_network)
 
-    def build_network(self):
+    def build_dqn(self):
         model = Sequential()
         model.add(Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu', input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT)))
         model.add(Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu'))
         #model.add(Convolution2D(64, 3, 3, subsample=(1, 1), activation='relu'))
         model.add(Flatten())
-        model.add(Dense(512, activation='relu'))
-        model.add(Dense(self.num_actions+1))
-        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+        model.add(Dense(256, activation='relu'))
+        model.add(Dense(self.num_actions))
 
         s = tf.placeholder(tf.float32, [None, STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT])
         q_values = model(s)
 
         return s, q_values, model
 
-    def build_network_separated(self):
+    def build_duel(self):
         model = Sequential()
         model.add(Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu', input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT)))
         model.add(Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu'))
@@ -324,7 +339,7 @@ class Agent():
 
         return next_state
 
-    def train_network(self):
+    def train_ddqn(self):
         state_batch = []
         action_batch = []
         reward_batch = []
@@ -367,6 +382,37 @@ class Agent():
             self.s: np.float32(np.array(state_batch) / 255.0),
             self.a: action_batch,
             self.y: y_batch.eval()
+        })
+
+        self.total_loss += loss
+
+    def train_dqn(self):
+        state_batch = []
+        action_batch = []
+        reward_batch = []
+        next_state_batch = []
+        terminal_batch = []
+        y_batch = []
+
+        # Sample random minibatch of transition from replay memory
+        minibatch = self.replay_memory.get_minibatch(BATCH_SIZE)
+        for data in minibatch:
+            state_batch.append(data[0])
+            action_batch.append(data[1])
+            reward_batch.append(data[2])
+            next_state_batch.append(data[3])
+            terminal_batch.append(data[4])
+
+        # Convert True to 1, False to 0
+        terminal_batch = np.array(terminal_batch) + 0
+
+        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch) / 255.0)})
+        y_batch = reward_batch + (1 - terminal_batch) * GAMMA * np.max(target_q_values_batch, axis=1)
+
+        loss, _ = self.sess.run([self.loss, self.grads_update], feed_dict={
+            self.s: np.float32(np.array(state_batch) / 255.0),
+            self.a: action_batch,
+            self.y: y_batch
         })
 
         self.total_loss += loss
