@@ -11,6 +11,16 @@ from keras.layers import Convolution2D, Flatten, Dense, Lambda
 from keras import backend as K
 import argparse
 
+parser = argparse.ArgumentParser(description='Deep Q Networks for Atari')
+parser.add_argument("--network_type", type=str, default="DQN", help="Network type can be DQN, DDQN, DUEL_DQN, DUEL_DDQN")
+parser.add_argument("--folder_suffix", type=str, default="", help="Checkpoints are stored in saved_networks/<folder>-<envName>/ & saved_networks/<folder>-<envName>_evaluation/, summary in summary/<folder>-<envName>")
+parser.add_argument("--l", type=float, help="Learning rate")
+opts = parser.parse_args()
+
+network_type = opts.network_type
+folder_suffix = opts.folder_suffix
+learning_rate = opts.l
+
 K.set_image_dim_ordering('th')
 
 ENV_NAME = 'SpaceInvaders-v0'  # Environment name
@@ -28,25 +38,23 @@ NUM_REPLAY_MEMORY = 1000000  # Number of replay memory the agent uses for traini
 BATCH_SIZE = 32  # Mini batch size
 TARGET_UPDATE_INTERVAL = 10000  # The frequency with which the target network is updated
 TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
-LEARNING_RATE = 0.0001  # Learning rate used by ADAM
+if network_type=="DQN":
+    LEARNING_RATE = 0.0001  # Learning rate used by ADAM
+else:
+    LEARNING_RATE = 0.00025  # Learning rate used by ADAM
 SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
 TRAIN = True
-FOLDER_TAG = 'DDQN-' + ENV_NAME
+FOLDER_TAG = network_type + "-" + ENV_NAME + folder_suffix
 SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
 SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
 #####TEST
 
-# ENV_NAME = 'SpaceInvaders-v0'  # Environment name
-# FRAME_WIDTH = 84  # Resized frame width
-# FRAME_HEIGHT = 84  # Resized frame height
 # NUM_EPISODES = 12000  # Number of episodes the agent plays
-# STATE_LENGTH = 4  # Number of most recent frames to produce the input to the network
-# GAMMA = 0.99  # Discount factor
 # EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
 # INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
 # FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
@@ -55,16 +63,10 @@ NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 # BATCH_SIZE = 32  # Mini batch size
 # TARGET_UPDATE_INTERVAL = 1000  # The frequency with which the target network is updated
 # TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
-# LEARNING_RATE = 0.0001  # Learning rate used by ADAM
 # SAVE_INTERVAL = 1000  # The frequency with which the network is saved
-# SAVE_INTERVAL_UPDATE_STEPS = 10
+# SAVE_INTERVAL_UPDATE_STEPS = 1000
 # NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 # LOAD_NETWORK = False
-# TRAIN = True
-# FOLDER_TAG = 'Test-Summary-Dueling-DDQN-' + ENV_NAME
-# SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
-# SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
-# NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
 
 #masking gpus
@@ -364,20 +366,19 @@ class Agent():
         online_q_values_best_next_action_batch = np.argmax(online_q_values_next_state_batch, axis=1)
         target_q_values_next_state_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch) / 255.0)})
         
-        # Convert action selected by online network to one hot
-        next_a_one_hot = tf.one_hot(online_q_values_best_next_action_batch, self.num_actions, 1.0, 0.0)
-        q_values_next_batch = tf.reduce_sum(tf.multiply(online_q_values_next_state_batch, next_a_one_hot), reduction_indices=1)
+        ##############
+        # # Convert action selected by online network to one hot
+        # next_a_one_hot = tf.one_hot(online_q_values_best_next_action_batch, self.num_actions, 1.0, 0.0)
+        # q_values_next_batch = tf.reduce_sum(tf.multiply(online_q_values_next_state_batch, next_a_one_hot), reduction_indices=1)
 
-        # print "q_values for next state: " + str(online_q_values_next_state_batch.shape)
-        # print "argmax for prev vector:  " + str(online_q_values_best_next_action_batch.shape)
-        # print "next a one hot: " + str(next_a_one_hot.shape)
-        # print "q_values_next_batch" + str(q_values_next_batch.shape)
+        # y_batch = reward_batch + (1 - terminal_batch) * GAMMA * q_values_next_batch
+        ##############
+        next_action_batch = np.argmax(self.q_values.eval(feed_dict={self.s: next_state_batch}), axis=1)
+        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: next_state_batch})
+        for i in xrange(len(minibatch)):
+            y_batch.append(reward_batch[i] + (1 - terminal_batch[i]) * GAMMA * target_q_values_batch[i][next_action_batch[i]])
 
-
-        y_batch = reward_batch + (1 - terminal_batch) * GAMMA * q_values_next_batch
-
-        # print "y_batch" + str(q_values_next_batch.shape)
-
+        ##############
         loss, _ = self.sess.run([self.loss, self.grads_update], feed_dict={
             self.s: np.float32(np.array(state_batch) / 255.0),
             self.a: action_batch,

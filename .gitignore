@@ -10,3 +10,7 @@ saved_networks/Test-Summary-Dueling-DDQN-SpaceInvaders-v0_evaluation/checkpoint
 *.edu
 
 saved_networks/Test-Summary-Dueling-DDQN-SpaceInvaders-v0/checkpoint
+
+saved_networks/DQN-SpaceInvaders-v0_evaluation/checkpoint
+
+saved_networks/DQN-SpaceInvaders-v0/checkpoint
