@@ -16,7 +16,7 @@ FRAME_WIDTH = 84  # Resized frame width
 FRAME_HEIGHT = 84  # Resized frame height
 NUM_EPISODES = 12000  # Number of episodes the agent plays
 STATE_LENGTH = 4  # Number of most recent frames to produce the input to the network
-GAMMA = 0.99  # Discount factorg
+GAMMA = 0.99  # Discount factor
 EXPLORATION_STEPS = 1000000  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
 # EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
 INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
@@ -27,7 +27,7 @@ BATCH_SIZE = 32  # Mini batch size
 TARGET_UPDATE_INTERVAL = 10000  # The frequency with which the target network is updated
 TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
 LEARNING_RATE = 0.0001  # Learning rate used by ADAM
-SAVE_INTERVAL = 300000  # The frequency with which the network is saved
+SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
@@ -36,6 +36,34 @@ FOLDER_TAG = 'Dueling-DDQN-' + ENV_NAME
 SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
 SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
+
+#####TEST
+
+# ENV_NAME = 'SpaceInvaders-v0'  # Environment name
+# FRAME_WIDTH = 84  # Resized frame width
+# FRAME_HEIGHT = 84  # Resized frame height
+# NUM_EPISODES = 12000  # Number of episodes the agent plays
+# STATE_LENGTH = 4  # Number of most recent frames to produce the input to the network
+# GAMMA = 0.99  # Discount factor
+# EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
+# INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
+# FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
+# INITIAL_REPLAY_SIZE = 1000  # Number of steps to populate the replay memory before training starts
+# NUM_REPLAY_MEMORY = 10000  # Number of replay memory the agent uses for training
+# BATCH_SIZE = 32  # Mini batch size
+# TARGET_UPDATE_INTERVAL = 1000  # The frequency with which the target network is updated
+# TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
+# LEARNING_RATE = 0.0001  # Learning rate used by ADAM
+# SAVE_INTERVAL = 1000  # The frequency with which the network is saved
+# SAVE_INTERVAL_UPDATE_STEPS = 10
+# NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
+# LOAD_NETWORK = False
+# TRAIN = True
+# FOLDER_TAG = 'Test-Summary-Dueling-DDQN-' + ENV_NAME
+# SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
+# SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
+# NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
+
 
 #masking gpus
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
@@ -83,6 +111,52 @@ class ReplayMemory():
         minibatch = random.sample(self.replay_memory, batch_size)
         return minibatch
 
+class SummaryWriter:
+    def __init__(self, save_summary_path, saved_network_path, q_network_weights, sess):
+        self.sess = sess
+        self.saver = tf.train.Saver(q_network_weights, max_to_keep=10000)
+        self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
+        self.summary_writer = tf.summary.FileWriter(save_summary_path, self.sess.graph)
+        self.save_summary_path = save_summary_path
+        self.saved_network_path = saved_network_path
+        if not os.path.exists(saved_network_path):
+            os.makedirs(saved_network_path)
+        if not os.path.exists(saved_network_path + '_evaluation/'):
+            os.makedirs(saved_network_path + '_evaluation/') 
+
+    def setup_summary(self):
+        episode_total_reward = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Total Reward/Episode', episode_total_reward)
+        episode_avg_max_q = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Average Max Q/Episode', episode_avg_max_q)
+        episode_duration = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Duration/Episode', episode_duration)
+        episode_avg_loss = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Average Loss/Episode', episode_avg_loss)
+        episode_total_reward_unclipped = tf.Variable(0.)
+        tf.summary.scalar(ENV_NAME + '/Total Reward Unclipped/Episode', episode_total_reward_unclipped)
+        summary_vars = [episode_total_reward, episode_avg_max_q, episode_duration, episode_avg_loss, episode_total_reward_unclipped]
+        summary_placeholders = [tf.placeholder(tf.float32) for _ in range(len(summary_vars))]
+        update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in range(len(summary_vars))]
+        summary_op = tf.summary.merge_all()
+        return summary_placeholders, update_ops, summary_op
+
+    def save_checkpoint(self, time_step):
+        save_path = self.saver.save(self.sess, self.saved_network_path + '/' + ENV_NAME, global_step=time_step)
+        return save_path
+
+    def save_checkpoint_for_evaluation(self, time_step):
+        save_path = self.saver.save(self.sess, self.saved_network_path + '_evaluation/' + ENV_NAME, global_step=time_step)
+        return save_path
+
+    def add_summary(self, stats, episode_no):
+        for i in range(len(stats)):
+            self.sess.run(self.update_ops[i], feed_dict={
+                self.summary_placeholders[i]: float(stats[i])
+            })
+            summary_str = self.sess.run(self.summary_op)
+            self.summary_writer.add_summary(summary_str, episode_no)
+
 class Agent():
     def __init__(self, num_actions):
         self.num_actions = num_actions
@@ -118,16 +192,9 @@ class Agent():
         self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False,
                                         allow_soft_placement=True,
                                         gpu_options=gpu_options))
-        self.saver = tf.train.Saver(q_network_weights, max_to_keep=10000)
-        self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
-        self.summary_writer = tf.summary.FileWriter(SAVE_SUMMARY_PATH, self.sess.graph)
+        
 
-        if not os.path.exists(SAVE_NETWORK_PATH):
-            os.makedirs(SAVE_NETWORK_PATH)
-
-        if not os.path.exists(SAVE_NETWORK_PATH + '_evaluation/'):
-            os.makedirs(SAVE_NETWORK_PATH + '_evaluation/')            
-
+        self.summary_writer = SummaryWriter(SAVE_SUMMARY_PATH, SAVE_NETWORK_PATH, q_network_weights, self.sess)
         self.sess.run(tf.global_variables_initializer())
 
         # Load network
@@ -200,11 +267,11 @@ class Agent():
 
             # Save network
             if self.t % SAVE_INTERVAL == 0:
-                save_path = self.saver.save(self.sess, SAVE_NETWORK_PATH + '/' + ENV_NAME, global_step=self.t)
+                save_path = self.summary_writer.save_checkpoint(self.t)
                 print('Successfully saved: ' + save_path)
 
             if self.network_updates % SAVE_INTERVAL_UPDATE_STEPS == 0:
-                save_path = self.saver.save(self.sess, SAVE_NETWORK_PATH + '_evaluation/' + ENV_NAME, global_step=self.network_updates)
+                save_path = self.summary_writer.save_checkpoint_for_evaluation(self.network_updates)
                 print('Successfully saved: ' + save_path)
 
         self.total_reward += reward
@@ -216,13 +283,9 @@ class Agent():
             if self.t >= INITIAL_REPLAY_SIZE:
                 stats = [self.total_reward, self.total_q_max / float(self.duration),
                         self.duration, self.total_loss / (float(self.duration) / float(TRAIN_INTERVAL)), self.total_reward_unclipped]
-                for i in range(len(stats)):
-                    self.sess.run(self.update_ops[i], feed_dict={
-                        self.summary_placeholders[i]: float(stats[i])
-                    })
-                summary_str = self.sess.run(self.summary_op)
-                self.summary_writer.add_summary(summary_str, self.episode + 1)
 
+                self.summary_writer.add_summary(stats, self.episode + 1)
+                
             # Debug
             if self.t < INITIAL_REPLAY_SIZE:
                 mode = 'random'
@@ -293,22 +356,7 @@ class Agent():
 
         self.total_loss += loss
 
-    def setup_summary(self):
-        episode_total_reward = tf.Variable(0.)
-        tf.summary.scalar(ENV_NAME + '/Total Reward/Episode', episode_total_reward)
-        episode_avg_max_q = tf.Variable(0.)
-        tf.summary.scalar(ENV_NAME + '/Average Max Q/Episode', episode_avg_max_q)
-        episode_duration = tf.Variable(0.)
-        tf.summary.scalar(ENV_NAME + '/Duration/Episode', episode_duration)
-        episode_avg_loss = tf.Variable(0.)
-        tf.summary.scalar(ENV_NAME + '/Average Loss/Episode', episode_avg_loss)
-        episode_total_reward_unclipped = tf.Variable(0.)
-        tf.summary.scalar(ENV_NAME + '/Total Reward Unclipped/Episode', episode_total_reward_unclipped)
-        summary_vars = [episode_total_reward, episode_avg_max_q, episode_duration, episode_avg_loss, episode_total_reward_unclipped]
-        summary_placeholders = [tf.placeholder(tf.float32) for _ in range(len(summary_vars))]
-        update_ops = [summary_vars[i].assign(summary_placeholders[i]) for i in range(len(summary_vars))]
-        summary_op = tf.summary.merge_all()
-        return summary_placeholders, update_ops, summary_op
+
 
     def load_network(self):
         checkpoint = tf.train.get_checkpoint_state(SAVE_NETWORK_PATH)
