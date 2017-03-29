@@ -60,19 +60,19 @@ NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
 ####TEST
 
-NUM_EPISODES = 12000  # Number of episodes the agent plays
-EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
-INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
-FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
-INITIAL_REPLAY_SIZE = 1000  # Number of steps to populate the replay memory before training starts
-NUM_REPLAY_MEMORY = 10000  # Number of replay memory the agent uses for training
-BATCH_SIZE = 32  # Mini batch size
-TARGET_UPDATE_INTERVAL = 1000  # The frequency with which the target network is updated
-TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
-SAVE_INTERVAL = 10000  # The frequency with which the network is saved
-SAVE_INTERVAL_UPDATE_STEPS = 10000
-NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
-LOAD_NETWORK = False
+# NUM_EPISODES = 12000  # Number of episodes the agent plays
+# EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
+# INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
+# FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
+# INITIAL_REPLAY_SIZE = 1000  # Number of steps to populate the replay memory before training starts
+# NUM_REPLAY_MEMORY = 10000  # Number of replay memory the agent uses for training
+# BATCH_SIZE = 32  # Mini batch size
+# TARGET_UPDATE_INTERVAL = 1000  # The frequency with which the target network is updated
+# TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
+# SAVE_INTERVAL = 10000  # The frequency with which the network is saved
+# SAVE_INTERVAL_UPDATE_STEPS = 10000
+# NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
+# LOAD_NETWORK = False
 
 
 #masking gpus
