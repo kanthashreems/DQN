@@ -45,6 +45,8 @@ else:
 SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
+MOMENTUM = 0.95
+MIN_GRAD = 0.01  # Constant added to the squared gradient in the denominator of the RMSProp update
 LOAD_NETWORK = False
 TRAIN = True
 FOLDER_TAG = network_type + "-" + ENV_NAME + folder_suffix
@@ -244,7 +246,8 @@ class Agent():
         model.add(Flatten())
         model.add(Dense(512, activation='relu'))
         model.add(Dense(self.num_actions+1))
-        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions+1,)))
+        
 
         s = tf.placeholder(tf.float32, [None, STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT])
         q_values = model(s)
@@ -265,7 +268,7 @@ class Agent():
         linear_part = error - quadratic_part
         loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
 
-        optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+        optimizer = tf.train.RMSPropOptimizer(LEARNING_RATE, momentum=MOMENTUM, epsilon=MIN_GRAD)
         grads_update = optimizer.minimize(loss, var_list=q_network_weights)
 
         return a, y, loss, grads_update
