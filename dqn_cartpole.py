@@ -6,13 +6,13 @@ import tensorflow as tf
 from collections import deque
 from skimage.color import rgb2gray
 from skimage.transform import resize
-from keras.models import Sequential
-from keras.layers import Convolution2D, Flatten, Dense, Lambda
+from keras.models import Sequential, Model
+from keras.layers import Convolution2D, Flatten, Dense, Lambda, Input
 from keras import backend as K
 import argparse
 
 parser = argparse.ArgumentParser(description='Deep Q Networks for Atari')
-parser.add_argument("--network_type", type=str, default="DQN", help="Network type can be DQN, DDQN, DUEL_DQN, DUEL_DDQN")
+parser.add_argument("--network_type", type=str, default="DUEL_DQN", help="Network type can be DQN, DDQN, DUEL_DQN, DUEL_DDQN")
 parser.add_argument("--folder_suffix", type=str, default="", help="Checkpoints are stored in saved_networks/<folder>-<envName>/ & saved_networks/<folder>-<envName>_evaluation/, summary in summary/<folder>-<envName>")
 parser.add_argument("--l", type=float, help="Learning rate")
 opts = parser.parse_args()
@@ -23,10 +23,10 @@ learning_rate = opts.l
 
 K.set_image_dim_ordering('th')
 
-ENV_NAME = 'SpaceInvaders-v0'  # Environment name
+ENV_NAME = 'CartPole-v0'  # Environment name
 FRAME_WIDTH = 84  # Resized frame width
 FRAME_HEIGHT = 84  # Resized frame height
-NUM_EPISODES = 12000  # Number of episodes the agent plays
+NUM_EPISODES = 50000  # Number of episodes the agent plays
 STATE_LENGTH = 4  # Number of most recent frames to produce the input to the network
 GAMMA = 0.99  # Discount factor
 EXPLORATION_STEPS = 1000000  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
@@ -44,9 +44,7 @@ else:
     LEARNING_RATE = 0.00025  # Learning rate used by ADAM
 SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
-NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
-MOMENTUM = 0.95
-MIN_GRAD = 0.01  # Constant added to the squared gradient in the denominator of the RMSProp update
+NO_OP_STEPS = 5  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
 LOAD_NETWORK = False
 TRAIN = True
 FOLDER_TAG = network_type + "-" + ENV_NAME + folder_suffix
@@ -56,19 +54,20 @@ NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
 
 ####TEST
 
-NUM_EPISODES = 12000  # Number of episodes the agent plays
-EXPLORATION_STEPS = 5  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
-INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
-FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
-INITIAL_REPLAY_SIZE = 1000  # Number of steps to populate the replay memory before training starts
+NUM_EPISODES = 3000000  # Number of episodes the agent plays
+NUM_TIMESTEPS = 5000000
+EXPLORATION_STEPS = 10000  # Number of steps over which the initial value of epsilon is linearly annealed to its final value
+# INITIAL_EPSILON = 1.0  # Initial value of epsilon in epsilon-greedy
+# FINAL_EPSILON = 0.1  # Final value of epsilon in epsilon-greedy
+INITIAL_REPLAY_SIZE = 5000  # Number of steps to populate the replay memory before training starts
 NUM_REPLAY_MEMORY = 10000  # Number of replay memory the agent uses for training
-BATCH_SIZE = 32  # Mini batch size
+# BATCH_SIZE = 32  # Mini batch size
 TARGET_UPDATE_INTERVAL = 1000  # The frequency with which the target network is updated
-TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
-SAVE_INTERVAL = 10000  # The frequency with which the network is saved
-SAVE_INTERVAL_UPDATE_STEPS = 10000
-NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
-LOAD_NETWORK = False
+# TRAIN_INTERVAL = 4  # The agent selects 4 actions between successive updates
+# SAVE_INTERVAL = 10000  # The frequency with which the network is saved
+# SAVE_INTERVAL_UPDATE_STEPS = 10000
+# NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
+# LOAD_NETWORK = False
 
 
 #masking gpus
@@ -193,7 +192,7 @@ class Agent():
             self.build_network = self.build_dqn
             self.train_network = self.train_ddqn
         elif network_type == "DUEL_DQN":
-            self.build_network = self.build_duel
+            self.build_network = self.build_duel_func_API
             self.train_network = self.train_dqn
         elif network_type == "DUEL_DDQN":
             self.build_network = self.build_duel
@@ -243,20 +242,15 @@ class Agent():
         s = tf.placeholder(tf.float32, [None, STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT])
         q_values = model(s)
 
-        return s, q_values, model
+        return s, q_values, 
 
-    def build_duel(self):
+    def build_dqn(self):
         model = Sequential()
-        model.add(Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu', input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT)))
-        model.add(Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu'))
-        #model.add(Convolution2D(64, 3, 3, subsample=(1, 1), activation='relu'))
-        model.add(Flatten())
-        model.add(Dense(512, activation='relu'))
-        model.add(Dense(self.num_actions+1))
-        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions+1,)))
-        
+        model.add(Flatten(input_shape=(STATE_LENGTH, 4)))
+        model.add(Dense(2))
+        model.add(Dense(self.num_actions))
 
-        s = tf.placeholder(tf.float32, [None, STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT])
+        s = tf.placeholder(tf.float32, [None, STATE_LENGTH, 4])
         q_values = model(s)
 
         return s, q_values, model
@@ -276,6 +270,52 @@ class Agent():
 
         return s, q_values, model
 
+    def build_duel(self):
+        model = Sequential()
+        model.add(Flatten(input_shape=(STATE_LENGTH, 4)))
+        model.add(Dense(self.num_actions+1))
+        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+
+        s = tf.placeholder(tf.float32, [None, STATE_LENGTH, 4])
+        q_values = model(s)
+
+        return s, q_values, model
+
+    def build_duel_func_API(self):
+        
+        x = Input(shape=(STATE_LENGTH, 4))        
+        # conv_1 = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(x)
+        # conv_2 = Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu')(conv_1)
+        # s = tf.placeholder(tf.float32, [None, STATE_LENGTH, 4])
+        flattened = Flatten()(x)
+        dense_value = Dense(256, activation='relu')(flattened)
+        dense_advantage = Dense(256, activation='relu')(flattened)
+        dense_value_out = Dense(1)(dense_value)
+        dense_advantage_out = Dense(self.num_actions)(dense_advantage)
+        q = Lambda(lambda x,y:x+y-K.mean(y), arguments={'y':dense_advantage_out})(dense_value_out)
+
+        model = Model(inputs=x, outputs=q)
+
+        # x = Input(input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT))
+        # conv1_out = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(x)
+        # conv2_out = Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu')(conv1_out)
+        # conv_flattened = Flatten(input_shape=(STATE_LENGTH, 4))(conv2_out)
+        # v_hidden = Dense(256, activation='relu')(conv_flattened)
+        # a_hidden = Dense(256, activation='relu')(conv_flattened)
+        # v = Dense(1)(v_hidden)
+        # a = Dense(self.num_actions)(a_hidden)
+        # q = Merge()
+
+        # model.add(Dense(self.num_actions+1))
+        # model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+
+        
+        
+        q_values = model(x)
+
+        # return s, q_values, model
+        return x, q_values, model
+
     def build_training_op(self, q_network_weights):
         a = tf.placeholder(tf.int64, [None])
         y = tf.placeholder(tf.float32, [None])
@@ -290,19 +330,17 @@ class Agent():
         linear_part = error - quadratic_part
         loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
 
-        optimizer = tf.train.RMSPropOptimizer(LEARNING_RATE, momentum=MOMENTUM, epsilon=MIN_GRAD)
+        optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
         grads_update = optimizer.minimize(loss, var_list=q_network_weights)
 
         return a, y, loss, grads_update
 
     def get_initial_state(self, observation, last_observation):
-        processed_observation = np.maximum(observation, last_observation)
-        processed_observation = np.uint8(resize(rgb2gray(processed_observation), (FRAME_WIDTH, FRAME_HEIGHT)) * 255)
-        state = [processed_observation for _ in range(STATE_LENGTH)]
+        state = [observation for _ in range(STATE_LENGTH)]
         return np.stack(state, axis=0)
 
     def run(self, state, action, reward, terminal, observation):
-        next_state = np.append(state[1:, :, :], observation, axis=0)
+        next_state = np.append(state[1:, :], [observation], axis=0)
         self.total_reward_unclipped += reward
 
         # Clip all positive rewards at 1 and all negative rewards at -1, leaving 0 rewards unchanged
@@ -335,7 +373,7 @@ class Agent():
             
 
         self.total_reward += reward
-        self.total_q_max += np.max(self.q_values.eval(feed_dict={self.s: [np.float32(state / 255.0)]}))
+        self.total_q_max += np.max(self.q_values.eval(feed_dict={self.s: [np.float32(state)]}))
         self.duration += 1
 
         if terminal:
@@ -353,7 +391,7 @@ class Agent():
                 mode = 'explore'
             else:
                 mode = 'exploit'
-            print('EPISODE: {0:6d} / TIMESTEP: {1:8d} / DURATION: {2:5d} / EPSILON: {3:.5f} / TOTAL_REWARD: {4:3.0f} / AVG_MAX_Q: {5:2.4f} / AVG_LOSS: {6:.5f} / MODE: {7}'.format(
+            print('EPI: {0:6d} / TIMEST: {1:8d} / DURATION: {2:5d} / EPSI: {3:.5f} / TOT_REW: {4:3.0f} / AVG_MAX_Q: {5:2.4f} / AVG_LOSS: {6:.5f} / MODE: {7}'.format(
                 self.episode + 1, self.t, self.duration, self.policy.epsilon,
                 self.total_reward, self.total_q_max / float(self.duration),
                 self.total_loss / (float(self.duration) / float(TRAIN_INTERVAL)), mode))
@@ -390,9 +428,9 @@ class Agent():
         terminal_batch = np.array(terminal_batch) + 0
 
         
-        online_q_values_next_state_batch = self.q_values.eval(feed_dict={self.s: np.float32(np.array(next_state_batch) / 255.0)})
+        online_q_values_next_state_batch = self.q_values.eval(feed_dict={self.s: np.float32(np.array(next_state_batch))})
         online_q_values_best_next_action_batch = np.argmax(online_q_values_next_state_batch, axis=1)
-        target_q_values_next_state_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch) / 255.0)})
+        target_q_values_next_state_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch))})
         
         ##############
         # # Convert action selected by online network to one hot
@@ -401,14 +439,14 @@ class Agent():
 
         # y_batch = reward_batch + (1 - terminal_batch) * GAMMA * q_values_next_batch
         ##############
-        next_action_batch = np.argmax(self.q_values.eval(feed_dict={self.s: np.float32(np.array(next_state_batch) / 255.0)}), axis=1)
-        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch) / 255.0)})
+        next_action_batch = np.argmax(self.q_values.eval(feed_dict={self.s: np.float32(np.array(next_state_batch))}), axis=1)
+        target_q_values_batch = self.target_q_values.eval(feed_dict={self.st: np.float32(np.array(next_state_batch))})
         for i in xrange(len(minibatch)):
             y_batch.append(reward_batch[i] + (1 - terminal_batch[i]) * GAMMA * target_q_values_batch[i][next_action_batch[i]])
 
         ##############
         loss, _ = self.sess.run([self.loss, self.grads_update], feed_dict={
-            self.s: np.float32(np.array(state_batch) / 255.0),
+            self.s: np.float32(np.array(state_batch)),
             self.a: action_batch,
             self.y: y_batch
         })
@@ -439,7 +477,7 @@ class Agent():
         y_batch = reward_batch + (1 - terminal_batch) * GAMMA * np.max(target_q_values_batch, axis=1)
 
         loss, _ = self.sess.run([self.loss, self.grads_update], feed_dict={
-            self.s: np.float32(np.array(state_batch) / 255.0),
+            self.s: np.float32(np.array(state_batch)),
             self.a: action_batch,
             self.y: y_batch
         })
@@ -449,15 +487,16 @@ class Agent():
     def load_network(self):
         checkpoint = tf.train.get_checkpoint_state(SAVE_NETWORK_PATH)
         if checkpoint and checkpoint.model_checkpoint_path:
-            self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
+            self.summary_writer.saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print('Successfully loaded: ' + checkpoint.model_checkpoint_path)
         else:
             print('Training new network...')
 
 def preprocess(observation, last_observation):
-    processed_observation = np.maximum(observation, last_observation)
-    processed_observation = np.uint8(resize(rgb2gray(processed_observation), (FRAME_WIDTH, FRAME_HEIGHT)) * 255)
-    return np.reshape(processed_observation, (1, FRAME_WIDTH, FRAME_HEIGHT))
+    # processed_observation = np.maximum(observation, last_observation)
+    # processed_observation = np.uint8(resize(rgb2gray(processed_observation), (FRAME_WIDTH, FRAME_HEIGHT)) * 255)
+    # return np.reshape(processed_observation, (1, FRAME_WIDTH, FRAME_HEIGHT))
+    return observation
 
 
 def main():
@@ -466,11 +505,15 @@ def main():
 
     if TRAIN:  # Train mode
         for _ in range(NUM_EPISODES):
+            if agent.t > NUM_TIMESTEPS:
+                break
             terminal = False
             observation = env.reset()
             for _ in range(random.randint(1, NO_OP_STEPS)):
                 last_observation = observation
-                observation, _, _, _ = env.step(0)  # Do nothing
+                observation, _, done, _ = env.step(0)  # Do nothing
+                if done:
+                    observation = env.reset()
             state = agent.get_initial_state(observation, last_observation)
             while not terminal:
                 last_observation = observation
@@ -478,7 +521,7 @@ def main():
                 if agent.t < INITIAL_REPLAY_SIZE:
                     action = agent.policy.get_random_action(state)
                 else:
-                    action = agent.policy.get_epsilon_greedy_action_with_anneal(state, agent.q_values.eval(feed_dict={agent.s: [np.float32(state / 255.0)]}))
+                    action = agent.policy.get_epsilon_greedy_action_with_anneal(state, agent.q_values.eval(feed_dict={agent.s: [np.float32(state)]}))
 
                 observation, reward, terminal, _ = env.step(action)
                 # env.render()
@@ -486,20 +529,27 @@ def main():
                 state = agent.run(state, action, reward, terminal, processed_observation)
     else:  # Test mode
         # env.monitor.start(ENV_NAME + '-test')
-        for _ in range(NUM_EPISODES_AT_TEST):
+        for _ in range(1):
             terminal = False
             observation = env.reset()
-            for _ in range(random.randint(1, NO_OP_STEPS)):
-                last_observation = observation
-                observation, _, _, _ = env.step(0)  # Do nothing
+            # for _ in range(random.randint(1, 3)):
+            last_observation = observation
+            observation, _, _, _ = env.step(random.randrange(env.action_space.n))  # Do nothing
             state = agent.get_initial_state(observation, last_observation)
             while not terminal:
                 last_observation = observation
-                action = agent.policy.get_epsilon_greedy_action_at_test(state, agent.q_values.eval(feed_dict={agent.s: [np.float32(state / 255.0)]}))
-                observation, _, terminal, _ = env.step(action)
+                action = random.randrange(env.action_space.n)
+                
+                # action = agent.policy.get_epsilon_greedy_action_at_test(state, agent.q_values.eval(feed_dict={agent.s: [np.float32(state)]}))
+                observation, reward, terminal, _ = env.step(action)
+                print action,reward
                 env.render()
-                processed_observation = preprocess(observation, last_observation)
-                state = np.append(state[1:, :, :], processed_observation, axis=0)
+                for i in range(0,10000000):
+                    pass
+                for i in range(0,10000000):
+                    pass
+                # processed_observation = preprocess(observation, last_observation)
+                # state = np.append(state[1:, :], [processed_observation], axis=0)
         # env.monitor.close()
 
 
