@@ -6,8 +6,8 @@ import tensorflow as tf
 from collections import deque
 from skimage.color import rgb2gray
 from skimage.transform import resize
-from keras.models import Sequential
-from keras.layers import Convolution2D, Flatten, Dense, Lambda
+from keras.models import Sequential, Model
+from keras.layers import Convolution2D, Flatten, Dense, Lambda, Input
 from keras import backend as K
 import argparse
 
