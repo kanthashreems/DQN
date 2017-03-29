@@ -283,18 +283,18 @@ class Agent():
 
     def build_duel_func_API(self):
         
-        x = Input(shape=(STATE_LENGTH, 4))        
+        s = Input(shape=(STATE_LENGTH, 4))        
         # conv_1 = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(x)
         # conv_2 = Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu')(conv_1)
         # s = tf.placeholder(tf.float32, [None, STATE_LENGTH, 4])
-        flattened = Flatten()(x)
+        flattened = Flatten()(s)
         dense_value = Dense(256, activation='relu')(flattened)
         dense_advantage = Dense(256, activation='relu')(flattened)
         dense_value_out = Dense(1)(dense_value)
         dense_advantage_out = Dense(self.num_actions)(dense_advantage)
         q = Lambda(lambda x,y:x+y-K.mean(y), arguments={'y':dense_advantage_out})(dense_value_out)
 
-        model = Model(inputs=x, outputs=q)
+        model = Model(inputs=s, outputs=q)
 
         # x = Input(input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT))
         # conv1_out = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(x)
@@ -311,10 +311,10 @@ class Agent():
 
         
         
-        q_values = model(x)
+        q_values = model(s)
 
-        # return s, q_values, model
-        return x, q_values, model
+        return s, q_values, model
+        # return x, q_values, model
 
     def build_training_op(self, q_network_weights):
         a = tf.placeholder(tf.int64, [None])

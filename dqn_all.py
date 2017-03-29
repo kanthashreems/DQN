@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description='Deep Q Networks for Atari')
 parser.add_argument("--network_type", type=str, default="DQN", help="Network type can be DQN, DDQN, DUEL_DQN, DUEL_DDQN")
 parser.add_argument("--folder_suffix", type=str, default="", help="Checkpoints are stored in saved_networks/<folder>-<envName>/ & saved_networks/<folder>-<envName>_evaluation/, summary in summary/<folder>-<envName>")
 parser.add_argument("--l", type=float, help="Learning rate")
+parser.add_argument("--adam", type=bool, default=False, help="use ADAM")
+parser.add_argument("--reward_clipping", type=bool, default=True, help="use reward clipping during training")
 opts = parser.parse_args()
 
 network_type = opts.network_type
@@ -23,6 +25,8 @@ learning_rate = opts.l
 
 K.set_image_dim_ordering('th')
 
+ADAM = opts.adam
+REWARD_CLIP = opts.reward_clipping
 ENV_NAME = 'SpaceInvaders-v0'  # Environment name
 FRAME_WIDTH = 84  # Resized frame width
 FRAME_HEIGHT = 84  # Resized frame height
@@ -49,7 +53,7 @@ MOMENTUM = 0.95
 MIN_GRAD = 0.01  # Constant added to the squared gradient in the denominator of the RMSProp update
 LOAD_NETWORK = False
 TRAIN = True
-FOLDER_TAG = network_type + "-" + ENV_NAME + folder_suffix
+FOLDER_TAG = network_type + "-" + ENV_NAME + "-" + folder_suffix
 SAVE_NETWORK_PATH = 'saved_networks/' + FOLDER_TAG
 SAVE_SUMMARY_PATH = 'summary/' + FOLDER_TAG
 NUM_EPISODES_AT_TEST = 20  # Number of episodes the agent plays at test time
@@ -198,6 +202,12 @@ class Agent():
         elif network_type == "DUEL_DDQN":
             self.build_network = self.build_duel
             self.train_network = self.train_ddqn
+        elif network_type == "DUEL_DDQN_HIDDEN":
+            self.build_network = self.build_duel_func_API
+            self.train_network = self.train_ddqn
+        elif network_type == "DUEL_DQN_HIDDEN":
+            self.build_network = self.build_duel_func_API
+            self.train_network = self.train_dqn
 
 
         # Create q network
@@ -261,18 +271,39 @@ class Agent():
 
         return s, q_values, model
 
-    def build_duel1(self):
-        model = Sequential()
-        model.add(Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu', input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT)))
-        model.add(Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu'))
-        #model.add(Convolution2D(64, 3, 3, subsample=(1, 1), activation='relu'))
-        model.add(Flatten())
-        model.add(Dense(512, activation='relu'))
-        model.add(Dense(self.num_actions+1))
-        model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+    def build_duel_func_API(self):
+        s = Input(shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT))        
+        conv_1 = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(s)
+        conv_2 = Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu')(conv_1)
+        # s = tf.placeholder(tf.float32, [None, STATE_LENGTH, 4])
+        flattened = Flatten()(conv_2)
+        dense_value = Dense(256, activation='relu')(flattened)
+        dense_advantage = Dense(256, activation='relu')(flattened)
+        dense_value_out = Dense(1)(dense_value)
+        dense_advantage_out = Dense(self.num_actions)(dense_advantage)
+        q = Lambda(lambda s,y:s+y-K.mean(y), arguments={'y':dense_advantage_out})(dense_value_out)
 
-        s = tf.placeholder(tf.float32, [None, STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT])
+        model = Model(inputs=s, outputs=q)
+
+        # x = Input(input_shape=(STATE_LENGTH, FRAME_WIDTH, FRAME_HEIGHT))
+        # conv1_out = Convolution2D(16, 8, 8, subsample=(4, 4), activation='relu')(x)
+        # conv2_out = Convolution2D(32, 4, 4, subsample=(2, 2), activation='relu')(conv1_out)
+        # conv_flattened = Flatten(input_shape=(STATE_LENGTH, 4))(conv2_out)
+        # v_hidden = Dense(256, activation='relu')(conv_flattened)
+        # a_hidden = Dense(256, activation='relu')(conv_flattened)
+        # v = Dense(1)(v_hidden)
+        # a = Dense(self.num_actions)(a_hidden)
+        # q = Merge()
+
+        # model.add(Dense(self.num_actions+1))
+        # model.add(Lambda(lambda a: K.expand_dims(a[:, 0]) + a[:, 1:] - K.mean(a[:, 1:], keepdims=True), output_shape=(self.num_actions,)))
+
+        
+        
         q_values = model(s)
+
+        # return s, q_values, model
+        # return x, q_values, model
 
         return s, q_values, model
 
@@ -290,8 +321,12 @@ class Agent():
         linear_part = error - quadratic_part
         loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
 
-        optimizer = tf.train.RMSPropOptimizer(LEARNING_RATE, momentum=MOMENTUM, epsilon=MIN_GRAD)
-        grads_update = optimizer.minimize(loss, var_list=q_network_weights)
+        if ADAM:
+            optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
+            grads_update = optimizer.minimize(loss, var_list=q_network_weights)
+        else:
+            optimizer = tf.train.RMSPropOptimizer(LEARNING_RATE, momentum=MOMENTUM, epsilon=MIN_GRAD)
+            grads_update = optimizer.minimize(loss, var_list=q_network_weights)
 
         return a, y, loss, grads_update
 
@@ -305,8 +340,9 @@ class Agent():
         next_state = np.append(state[1:, :, :], observation, axis=0)
         self.total_reward_unclipped += reward
 
-        # Clip all positive rewards at 1 and all negative rewards at -1, leaving 0 rewards unchanged
-        reward = np.clip(reward, -1, 1)
+        if REWARD_CLIP:
+            # Clip all positive rewards at 1 and all negative rewards at -1, leaving 0 rewards unchanged
+            reward = np.clip(reward, -1, 1)
 
         # Store transition in replay memory
         experience = (state, action, reward, next_state, terminal)
