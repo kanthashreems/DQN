@@ -46,6 +46,9 @@ if network_type=="DQN":
     LEARNING_RATE = 0.0001  # Learning rate used by ADAM
 else:
     LEARNING_RATE = 0.00025  # Learning rate used by ADAM
+if learning_rate:
+    LEARNING_RATE = learning_rate
+
 SAVE_INTERVAL = 50000  # The frequency with which the network is saved
 SAVE_INTERVAL_UPDATE_STEPS = 10000
 NO_OP_STEPS = 30  # Maximum number of "do nothing" actions to be performed by the agent at the start of an episode
