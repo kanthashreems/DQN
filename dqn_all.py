@@ -334,7 +334,8 @@ class Agent():
         return a, y, loss, grads_update
 
     def get_initial_state(self, observation, last_observation):
-        processed_observation = np.maximum(observation, last_observation)
+        # processed_observation = np.maximum(observation, last_observation)
+        processed_observation = observation
         processed_observation = np.uint8(resize(rgb2gray(processed_observation), (FRAME_WIDTH, FRAME_HEIGHT)) * 255)
         state = [processed_observation for _ in range(STATE_LENGTH)]
         return np.stack(state, axis=0)
@@ -494,7 +495,8 @@ class Agent():
             print('Training new network...')
 
 def preprocess(observation, last_observation):
-    processed_observation = np.maximum(observation, last_observation)
+    # processed_observation = np.maximum(observation, last_observation)
+    processed_observation = observation
     processed_observation = np.uint8(resize(rgb2gray(processed_observation), (FRAME_WIDTH, FRAME_HEIGHT)) * 255)
     return np.reshape(processed_observation, (1, FRAME_WIDTH, FRAME_HEIGHT))
 
